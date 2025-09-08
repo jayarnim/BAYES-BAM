@@ -1,5 +1,4 @@
 from typing import Literal
 
-SamplerType = Literal['lognormal', 'weibull']
-ScoreFNType = Literal['dot', 'bilinear', 'concat', 'hadamard']
-SimplexFNType = Literal['linear', 'exp']
+SAMPLER_TYPE = Literal['lognormal', 'weibull']
+SCORE_FN_TYPE = Literal['concat', 'hadamard']

@@ -1,39 +1,30 @@
-from typing import Literal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .constants import SimplexFNType
 
 
-class Module(nn.Module):
+class SimplexProjectionFunc(nn.Module):
     def __init__(
         self,
-        tau: float=4.0, 
-        beta: float=0.25,
-        simplex_fn_type: SimplexFNType='linear',
+        tau: float=1.0, 
+        beta: float=0.5,
     ):
         super().__init__()
 
         self.tau = tau
         self.beta = beta
-        self.simplex_fn_type = simplex_fn_type
 
     def forward(self, scores):
-        if self.simplex_fn_type == "linear":
-            return self._linear_proj_fn(scores)
-        elif self.simplex_fn_type == "exp":
-            return self._exp_proj_fn(scores)
-        else:
-            raise ValueError("simplex type must be linear or exp")
+        log_s = torch.log(F.softplus(scores) + 1e-8)
+        log_s_max = log_s.max(dim=-1, keepdim=True).values
 
-    def _linear_proj_fn(self, scores):
-        numerator = F.relu(scores) ** self.tau
-        numerator_sum = numerator.sum(dim=-1, keepdim=True) + 1e-8
-        denominator = numerator_sum ** self.beta
-        return numerator / denominator
+        numerator = self.tau * (log_s - log_s_max)
+        denominator = self.beta * torch.logsumexp(numerator, dim=-1, keepdim=True)
+        reg = self.tau * (1-self.beta) * log_s_max
+        log_w = numerator - denominator + reg
 
-    def _exp_proj_fn(self, scores):
-        numerator = torch.exp(scores / self.tau)
-        numerator_sum = numerator.sum(dim=-1, keepdim=True)
-        denominator = numerator_sum ** self.beta
-        return numerator / denominator
+        weights = torch.exp(log_w)
+
+        valid = torch.isfinite(weights)
+        weights = weights.masked_fill(~valid, 0.0)
+        return weights
