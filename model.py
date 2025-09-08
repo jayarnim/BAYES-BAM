@@ -1,11 +1,8 @@
 from typing import Optional
 import torch
 import torch.nn as nn
-from .sampler import (
-    LognormalSampler,
-    WeibullSampler,
-)
-from .simplex_proj_fn import SimplexProjectionFunc as simplex_proj_fn
+from .sampler import LognormalSampler, WeibullSampler
+from .simplex_proj_fn import SimplexProjectionFunc
 from .constants import (
     SAMPLER_TYPE,
     SCORE_FN_TYPE,
@@ -50,7 +47,7 @@ class Module(nn.Module):
         Q_exp = Q.unsqueeze(1).expand(B_len, H_len, D_len)
 
         # Sampling attn score: (B,H)
-        samples, dist = self.sampler(Q_exp, K, mask)
+        samples, kl = self.sampler(Q_exp, K, mask)
 
         # Masking: (B,H) or (H,) -> (B,H)
         if mask is not None:
@@ -67,7 +64,7 @@ class Module(nn.Module):
         # Context vector: (B,H) x (B,H,D) -> (B,D)
         context = torch.sum(weights.unsqueeze(-1) * V, dim=1)
 
-        return context, dist
+        return context, kl
 
     def _match_dim(self, source, target):
         if source is not None:
@@ -94,4 +91,4 @@ class Module(nn.Module):
             tau=self.tau, 
             beta=self.beta, 
         )
-        self.simplex_proj_fn = simplex_proj_fn(**kwargs)
+        self.simplex_proj_fn = SimplexProjectionFunc(**kwargs)

@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.distributions import LogNormal, Weibull, Gamma
 from .constants import SCORE_FN_TYPE
 from .score_fn import AttentionScoreFunc
+from .kl_div import kl_div
 
 
 class LognormalSampler(nn.Module):
@@ -34,8 +35,9 @@ class LognormalSampler(nn.Module):
             prior=prior,
             mask=self._match_dim(mask, samples),
         )
+        kl = kl_div(**dist)
 
-        return samples, dist
+        return samples, kl
 
     def _approx(self, Q, K):
         psi = self.approx_exp_fn(Q, K)
