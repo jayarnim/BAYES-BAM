@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.distributions import LogNormal, Weibull, Gamma
 from .constants import SCORE_FN_TYPE
 from .score_fn import AttentionScoreFunc
-from .kl_div import kl_div
+from .masked_kl import masked_kl_func
 
 
 class LognormalSampler(nn.Module):
@@ -35,7 +35,7 @@ class LognormalSampler(nn.Module):
             prior=prior,
             mask=self._match_dim(mask, samples),
         )
-        kl = kl_div(**dist)
+        kl = masked_kl_func(**dist)
 
         return samples, kl
 

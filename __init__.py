@@ -1,6 +1,6 @@
 from . import (
     constants,
-    kl_div,
+    masked_kl,
     model,
     sampler,
     score_fn,
