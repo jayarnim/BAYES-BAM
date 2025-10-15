@@ -2,76 +2,68 @@ from typing import Optional
 import torch
 import torch.nn as nn
 from .sampler import LognormalSampler, WeibullSampler
-from .simplex_proj_fn import SimplexProjectionFunc
-from .constants import (
+from . import simplex_proj_fn
+from ..utils.constants import (
     SAMPLER_TYPE,
     SCORE_FN_TYPE,
 )
 
 
-class Module(nn.Module):
+class BayesianAttentionModules(nn.Module):
     def __init__(
         self,
         dim: int,
-        sampler_type: SAMPLER_TYPE="lognormal",
-        score_fn_type: SCORE_FN_TYPE="hadamard",
         hyper_approx: float=0.1,
         hyper_prior: float=1.0,
-        tau: float=1.0, 
-        beta: float=0.5,
+        tau: float=4.0, 
+        beta: float=0.25,
         dropout: float=0.2,
+        sampler_type: SAMPLER_TYPE="lognormal",
+        score_fn_type: SCORE_FN_TYPE="prod",
     ):
         super().__init__()
 
         self.dim = dim
-        self.sampler_type = sampler_type
-        self.score_fn_type = score_fn_type
         self.hyper_approx = hyper_approx
         self.hyper_prior = hyper_prior
         self.tau = tau
         self.beta = beta
         self.dropout = dropout
+        self.sampler_type = sampler_type
+        self.score_fn_type = score_fn_type
 
-        self._init_layers()
+        self._set_up_components()
 
     def forward(
         self, 
-        Q: torch.Tensor,    # (B,D)
-        K: torch.Tensor,    # (B,H,D)
-        V: torch.Tensor,    # (B,H,D)
+        Q: torch.Tensor,                    # (B,H,D)
+        K: torch.Tensor,                    # (B,H,D)
+        V: torch.Tensor,                    # (B,H,D)
         mask: Optional[torch.Tensor]=None,  # (B,H)
+        sampling: bool=True,
     ):
-        B_len, H_len, D_len = K.shape
-
-        # Q: (B,D) -> (B,1,D) -> (B,H,D)
-        Q_exp = Q.unsqueeze(1).expand(B_len, H_len, D_len)
-
         # Sampling attn score: (B,H)
-        samples, kl = self.sampler(Q_exp, K, mask)
+        samples, psi, kl = self.sampler(Q, K, mask)
 
         # Masking: (B,H) or (H,) -> (B,H)
-        if mask is not None:
-            kwargs = dict(
-                input=samples, 
-                mask=self._match_dim(mask, samples), 
-                value=float('-inf'),
-            )
-            samples = torch.masked_fill(**kwargs)
+        if sampling==True:
+            scores = samples.masked_fill(~mask, float('-inf'))
+        else:
+            scores = psi.masked_fill(~mask, float('-inf'))
 
         # Simplex projection: (B,H) -> (B,H)
-        weights = self.simplex_proj_fn(samples)
+        weights = self.simplex_proj_fn(scores)
 
         # Context vector: (B,H) x (B,H,D) -> (B,D)
         context = torch.sum(weights.unsqueeze(-1) * V, dim=1)
 
         return context, kl
 
-    def _match_dim(self, source, target):
-        if source is not None:
-            source = source.expand_as(target)
-        return source
-
-    def _init_layers(self):
+    def _set_up_components(self):
+        self._create_sampler()
+        self._create_simplex_proj_fn()
+    
+    def _create_sampler(self):
         kwargs = dict(
             dim=self.dim, 
             score_fn_type=self.score_fn_type, 
@@ -85,10 +77,11 @@ class Module(nn.Module):
         elif self.sampler_type=='weibull':
             self.sampler = WeibullSampler(**kwargs)
         else:
-            raise ValueError("Invalid Approx. Dist.")
+            raise ValueError(f"Invalid sampler_type: {self.sampler_type}")
 
+    def _create_simplex_proj_fn(self):
         kwargs = dict(
             tau=self.tau, 
             beta=self.beta, 
         )
-        self.simplex_proj_fn = SimplexProjectionFunc(**kwargs)
+        self.simplex_proj_fn = simplex_proj_fn.Module(**kwargs)
